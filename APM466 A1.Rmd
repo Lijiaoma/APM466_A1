@@ -1,0 +1,333 @@
+---
+title: 'APM466 Assignment 1'
+subtitle: 'Lijiao Ma, Student 1002922885'
+date: 'February, 2020'
+header-includes: 
+  \usepackage{fancyhdr} 
+  \usepackage{amsmath}
+  \pagestyle{fancy} 
+  \lhead{Lijiao Ma, Student 1002922885} 
+  \rhead{\today} 
+  \fancyhead[CO,CE]{MAT1856/APM466 Assignment 1} 
+  \usepackage{float}
+keep_tex: TRUE
+geometry: left=0.8cm,right=0.8cm,top=1.5cm,bottom=1.2cm
+spacing: 1.25
+fontsize: 18pt
+output:
+  pdf_document
+
+---
+
+
+$\textbf{Fundamental Questions - 25 points}$
+
+1. (a) A government issues bonds to raise money to finance government spending or to influence money supply. 
+(b) Yield curve is not only correlated with the cost of financing government spending, but also indicates future economic prospects and affects monetary policy.
+(c) To reduce money supply, a government can conduct open market purchases of bonds, thus taking in cash in the market. 
+  
+2. For each date in d + i, where d $\in$ {2020-01-02, . . . , 2020-01-15} and i = 1/2y, 1y, . . . , 5y (y = years), a bond with the maturity date closest to d + i has been selected for bootstrapping. When two bond that could be potentially selected have the same maturity date, the one issued more recently is selected. The reason is to be most relevant and best replicate the semiannual coupon payments as of a government bond issued today. Please note that the selected 10 bonds will be treated as if they would pay a coupon or mature every half year starting from time d. Due to unavailability of some bonds, this approximation introduces some inaccuracy. This yields the bonds to be used as:
+$$\begin{Bmatrix} B_{d+\frac{1}{2}y} \\ ... \\ B_{d+5y} \end{Bmatrix} = 
+\begin{Bmatrix}
+CAN \space \space \space 0.75 \space \space \space 2020/09/01 \\
+CAN \space \space \space 2.25 \space \space \space 2021/02/01 \\
+CAN \space \space \space 1.5 \space \space \space 2021/08/01 \\
+CAN \space \space \space 1.5 \space \space \space 2022/02/01 \\
+CAN \space \space \space 2.75 \space \space \space 2022/06/01 \\
+CAN \space \space \space 1.75 \space \space \space 2023/03/01 \\
+CAN \space \space \space 1.5 \space \space \space 2023/06/01 \\
+CAN \space \space \space 2.25 \space \space \space 2024/03/01 \\
+CAN \space \space \space 1.5 \space \space \space 2024/09/01 \\
+CAN \space \space \space 1.25 \space \space \space 2025/03/01 
+\end{Bmatrix}$$
+
+"Bootstrapping" algorithm was used to construct a spot curve. For each d $\in$ {2020-01-02, . . . , 2020-01-15}, "$CAN \space \space 0.75 \space \space 2020/09/01$" was first used to back out 6-month spot rate and then bonds of higher maturity were fed into the second formula below to complete the spot curves. 
+
+6-month spot rate: $\space \space r_{1/2} = -log(\frac{P(0, 1/2)}{C_{1/2} + F_1/2})/\frac{1}{2}$;
+Higher maturities: $\space \space r_{t} = - log(\frac{P(0, t) - \sum_{0<k<t} C_{t} \space e^{k \times r_{k}}}{C_{t} + F_t}) / t$\
+
+$\text{where P(0,t) = bond price at time t, } C_{t} \text{ = coupon payment at time t, } F_{t} \text{ = maturity value at time t = 100}$
+
+3. The eigenvalues and eigenvectors uniquely define the covariance matrix. The eigenvector associated with the largest eigenvalue tells us the direction of the largest variance of the points/processes, and the eigenvalue tells the magnitude of the eigenvector. The eigenvector asociated with the second largest eigenvalue, which is orthogonal to the largest eigenvector, points to the direction of the second largest variance of the points/processes, and so on until all of the variance is explained by all eigenvectors. 
+
+$\textbf{Empirical Questions - 75 points}$
+
+4.
+
+  (a) The yield for each of 32 bonds has been calculated. Results can be found in code file. Data points on yield curve are results of linear interpolation of bond yields with closest possible time to maturity. For example, the 1-year bond yield is a linear interpolation of 0.65-year and 1.07-year bond yields. Because both the differences in maturities and yields are small, linear interpolation is considered both reliable and simple to implement. 
+    
+    The yields calculated with the 10 bonds selected in Part 2 are summarized in the table below. 
+    
+```{r echo=FALSE, include=FALSE}
+# import the dataset and convert data types
+df <- read.csv('Master Bond.csv')
+summary(df)
+
+df$issue_date <- as.Date(df$issue_date)
+df$maturity_date <- as.Date(df$maturity_date)
+str(df)
+
+# create a new variable: num_coupon, the number of coupon payments before maturity
+today <- as.Date('2020-01-15') 
+df$num_coupon <- floor((df$maturity_date - today)/30.5/6)+1
+df$num_coupon <- as.numeric(df$num_coupon)
+
+# create a new variable: next_coupon_date, the date of next coupon payment
+df$next_coupon_date <- as.Date(df$maturity_date - 365 / 2 * (df$num_coupon-1))
+# create a new variable: last_coupon_date, the date of the last coupon payment
+df$last_coupon_date <- as.Date(df$next_coupon_date - 365/2)
+
+# convert clean price into dirty price
+today <- as.Date('2020-01-02') 
+for (j in (6:ncol(df))){
+  df[,j] <- df[,j] + as.numeric(today - df$last_coupon_date)/365 * df$coupon
+}
+
+today <- as.Date('2020-01-15') 
+# create a function to return the present value of bond cashflows given annual continuously compounded bond yield i
+PV_yield <- function(i, num_coupon, coupon_rate, today, coupon_start_date){
+  if(num_coupon == 1){
+      discount_period = as.numeric((coupon_start_date - today)/365)
+      coupon = coupon_rate * 100 / 2
+      PV = (100 + coupon) * exp(-i * discount_period)
+    }
+    
+  else{
+      discount_period = as.numeric((coupon_start_date - today)/365)
+      coupon = coupon_rate * 100 / 2
+      PV_coupon_start_date = coupon * (1 - exp(-i/2*num_coupon)) / (1 - exp(-i/2)) + 100 * exp(-i/2 * (num_coupon-1))
+      PV =  PV_coupon_start_date * exp(-i * discount_period)
+    }
+
+ return(PV)
+}
+
+# define a goal seek function using function "optimize"
+optimizer <- function(price, num_coupon, coupon_rate, today, coupon_start_date, lower=-1, upper=1) {
+  optimize(function(i) abs(PV_yield(i, num_coupon, coupon_rate, today, coupon_start_date) - price), lower=lower, upper=upper)
+}
+
+# loop through different as of date and different bonds
+# read as of dates
+today_set <- as.data.frame(read.csv('Today.csv'))
+today_set$Today <- as.Date(today_set$Today)
+yield <- matrix(ncol = nrow(today_set), data = rep(0, nrow(df)*nrow(today_set)))
+
+for (d in (1:nrow(today_set))){
+  for (n in (1:nrow(df))){
+  i <- optimizer(df[n, 5+d], df$num_coupon[n], df$coupon[n], today_set$Today[d], df$next_coupon_date[n])
+  i <- i$minimum
+  yield[n,d] <- i
+  }
+}
+
+# Approximate time to maturity, assuming valuation date is all "2020-01-07" across different dates. The impact should be immaterial.
+df$TTM <- as.numeric((df$maturity_date - as.Date("2020-01-07"))/365)
+
+# select 10 bonds
+yield_10_selected <- as.data.frame(yield[c(4,5,11,14,16,18,19,21,23,24),])
+yield_10_selected$TTM  <- df$TTM[c(4,5,11,14,16,18,19,21,23,24)]
+
+# rename columns
+colnames(yield_10_selected) <- c("2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01-08","2020-01-09","2020-01-10","2020-01-13","2020-01-14","2020-01-15", "Maturity")
+
+# add a dummy row
+yield_10_selected <- rbind(rep(0, 11), yield_10_selected)
+yield_10_selected
+
+# linearly interpolate the yields and construct a 5-year yield curve
+yield_curve <- as.data.frame(matrix(ncol = nrow(today_set), data = rep(0, nrow(today_set) * 10)))
+
+# define function to linearly interpolate between closest maturities
+interpolate <- function(term, m){
+  replace <- yield_10_selected[m+1,] * (term-yield_10_selected$Maturity[m])/(yield_10_selected$Maturity[m+1]-yield_10_selected$Maturity[m]) + yield_10_selected[m,] * (yield_10_selected$Maturity[m+1]-term)/(yield_10_selected$Maturity[m+1]-yield_10_selected$Maturity[m])
+  return(replace)
+}
+
+# define interpolation inputs
+grid <- as.data.frame(matrix(nrow = 10, data = rep(0, 10*2)))
+colnames(grid) <- c("term", "m")
+grid$term <- c(0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)
+grid$m <- seq(from = 1, to = 10, by = 1)
+
+# loop through grid to populate interpolation grid
+for (i in (1:10)){
+  yield_curve[grid$term[i]/0.5,] <- interpolate(grid$term[i], grid$m[i])
+}
+
+yield_curve$TTM <- grid$term
+#redefine column names
+colnames(yield_curve) <- c("2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01-08","2020-01-09","2020-01-10","2020-01-13","2020-01-14","2020-01-15", "Maturity")
+
+```
+
+```{r echo=FALSE}
+yield_curve_show <- yield_curve[, c(11, seq(from = 1, to = 10, by =1))]
+knitr::kable(yield_curve_show, caption = "Yield Curve (Continous)")
+```
+
+The yield curve plotting continuously compounded bond yields is also attached. 
+$\newline$
+```{r echo=FALSE}
+# make plots
+matplot(x = yield_curve[,ncol(yield_curve)],y = yield_curve[,1:(ncol(yield_curve)-1)], type = c("pl"),pch=1,col = 1:10, ylab = "Yield", xlab = "Time to Maturity", main = "Yield Curve (Continuous)")
+legend("topright", legend = colnames(yield_curve)[1:(ncol(yield_curve)-1)], col = 1:10,lwd = 1, 
+       cex = 0.65)
+```
+  
+  (b) The spot rates will constructed in the way that:
+  spot rate of 0.5-year term is set as the yield of zero-coupon bond maturing in half a year, and 
+  spot rate of term 0.5 + 0.5*n, is set such that the bond price is equal to the total present value of bond cashflows (coupons and maturity value) discounted at the spot rates of corresponding maturity terms. The variable n ranges from 1 to 9, and the algorithm is iterative. 
+  
+  To simplify the process, the yield curve as a result of interpolation is assumed reasonable and used as if different coupons are paid every half year. 
+  
+```{r echo=FALSE, include=FALSE}
+# make spot curve
+
+yield_curve$coupon <- df$coupon[c(4,5,11,14,16,18,19,21,23,24)]
+df$coupon
+price <- df[c(4,5,11,14,16,18,19,21,23,24), c(6:15)]
+spot_curve <- as.data.frame(matrix(ncol = nrow(today_set), data = rep(0, nrow(today_set) * 10)))
+
+# populate half-year term maturity spot rates
+for (j in (1:ncol(spot_curve))){
+  i = 1
+  spot_curve[i, j] <- -2 * log(price[i,j]/(100 + 100*yield_curve$coupon[i]/2))
+}
+
+# calculate recursively the spot rates for higher maturities
+
+# define function difference
+difference <- function(i){
+  difference <- p - pv_previous_coupon - (100 + 100*coupon/2) * exp(-i/2*term)
+}
+
+library(rootSolve)
+
+for (j in (1:ncol(spot_curve))){
+  for (i in (2:nrow(spot_curve))){
+    pv_previous_coupon <- 0
+    for (t in (1:(i-1))){
+      pv_previous_coupon <- pv_previous_coupon + yield_curve$coupon[i]/2 * exp(-yield_curve[t,j]*yield_curve$Maturity[t])
+    }
+    p <- price[i,j]
+    coupon <- yield_curve$coupon[i]
+    term <- yield_curve$Maturity[i]
+    spot <- rootSolve::uniroot.all(difference, c(-1,1))
+    spot_curve[i,j] <- spot
+  }
+}
+
+spot_curve
+```
+
+```{r echo=FALSE}
+# produce spot curve table
+spot_curve$TTM <- grid$term
+#redefine column names
+colnames(spot_curve) <- c("2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01-08","2020-01-09","2020-01-10","2020-01-13","2020-01-14","2020-01-15", "Maturity")
+spot_curve_show <- spot_curve[, c(11, seq(from = 1, to = 10, by =1))]
+knitr::kable(spot_curve_show, caption = "Spot Curve (Continous)")
+```
+
+The spot curve plotting continuously compounded spot rates is also attached. 
+
+```{r echo=FALSE}
+# make plots
+matplot(x = spot_curve[,ncol(spot_curve)],y = spot_curve[,1:(ncol(spot_curve)-1)], type = c("pl"),pch=1,col = 1:10, ylab = "Spot Rate", xlab = "Time to Maturity", main = "Spot Curve (Continuous)")
+legend("topright", legend = colnames(spot_curve)[1:(ncol(spot_curve)-1)], col = 1:10,lwd = 1, 
+       cex = 0.65)
+```
+
+  (c) Forward is the prediction of interest rate from future time T1 to future time T2. in other words, forward rate is the interest rate that equates the time value discounted from time T2 to T0 with the value discounted from time T2 to T1 and then T1 to T0.
+  
+  Algorithmically, forward rate between time T1 and T2 is set so that $e^{-r_2 \times T2} = e^{-r_1 \times T1} \times e^{-f \times (T2-T1)}$, where $r_T$ is the spot rate for maturity term T and $f$ is the forward rate between T1 and T2. Specifically, the one-year t-year forward rate is equal to $-log(\frac{e^{-r_{t+1} \times (t+1)}}{e^{-r_1}})/t = \frac{r_{t+1}\times t - r_1}{t}$. 
+  
+  The spot rates calculated in part (b) have been fed into the formula above to find the forward rates. Results are shown in the table and graph below. 
+  
+```{r echo=FALSE, include=FALSE}
+forward_curve <- as.data.frame(matrix(ncol = nrow(today_set), data = rep(0, nrow(today_set) * 7)))
+
+spot_curve_forward <- spot_curve[c(2, 4:nrow(spot_curve)),]
+
+# Define function to calculate forward rate
+forward <- function(rate, term){
+  r=rep(0,length(rate)-1)
+  for (c in 1:(length(rate)-1)) 
+  {
+    r[c]=(term[c+1]*rate[c+1]-rate[1])/(term[c+1]-1)
+  }
+  return(r)
+}
+
+for (j in (1:ncol(forward_curve))){
+  forward_curve[,j] <- forward(spot_curve_forward[,j], spot_curve_forward$Maturity)
+}
+
+forward_curve$Maturity <- spot_curve$Maturity[4:nrow(spot_curve)]
+forward_curve
+```
+
+```{r echo=FALSE}
+#redefine column names
+forward_curve$Maturity <- forward_curve$Maturity-1
+colnames(forward_curve) <- c("2020-01-02","2020-01-03","2020-01-06","2020-01-07","2020-01-08","2020-01-09","2020-01-10","2020-01-13","2020-01-14","2020-01-15", "1-yr x-yr forward")
+forward_curve_show <- forward_curve[, c(11, seq(from = 1, to = 10, by =1))]
+knitr::kable(forward_curve_show, caption = "Forward Curve (Continous)")
+```
+
+The forward curve plotting continuously compounded forward rates is also attached. 
+
+```{r echo=FALSE}
+# make plots
+matplot(x = forward_curve[,ncol(forward_curve)],y = forward_curve[,1:(ncol(forward_curve)-1)], type = c("pl"),pch=1,col = 1:10, ylab = "Forward Rate", xlab = "1-year X-year Forward", main = "Foward Curve (Continuous)")
+legend("topright", legend = colnames(spot_curve)[1:(ncol(spot_curve)-1)], col = 1:10,lwd = 1, 
+       cex = 0.65)
+```
+
+
+5. The covariance matrices for the time series of daily log-returns of yield, and forward rates were calculated in R. The results are shown below.
+
+```{r echo=FALSE}
+
+y <- yield_curve_show[,-1]
+y.return <- log(y[2:10,]/y[1:9,])
+fr <- forward_curve_show[,-1]
+fr.return <- log(abs(fr[2:7,]/fr[1:6,]))
+covariance_yield <- var(y.return)
+covariance_forward <- var(fr.return)
+knitr::kable(covariance_yield, caption = "Covariance matrix of daily log-returns of yields")
+```
+
+```{r echo=FALSE}
+
+knitr::kable(covariance_forward, caption = "Covariance matrix of daily log-returns of forward rates")
+```
+
+6. The eigenvector associated with the largest eigenvalue tells us the direction of the largest variance of the rates (yields or forward rates), and the eigenvalue tells themagnitude of the eigenvector. 
+
+Eigenvalues and eigenvectors of both covariance matrices were calculated in R as following.
+
+Covariance matrix of yields: 
+```{r echo=FALSE}
+eigen(covariance_yield)
+```
+
+```{r echo=FALSE}
+eigen(covariance_forward)
+```
+
+
+
+
+$\textbf{References and GitHub Link to Code}$
+
+https://markets.businessinsider.com/bonds/finder?borrower=71&maturity=midterm&yield=&bondtype=2%2c3%2c4%2c16&coupon=&currency=184&rating=&country=19
+
+https://markets.businessinsider.com/bonds/finder?borrower=71&maturity=shortterm&yield=&bondtype=2%2c3%2c4%2c16&coupon=&currency=184&rating=&country=19
+
+https://www.investopedia.com/terms/s/spot_rate_yield_curve.asp
+
+
+
+
